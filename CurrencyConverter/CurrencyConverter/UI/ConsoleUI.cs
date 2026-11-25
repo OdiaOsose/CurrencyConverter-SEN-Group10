@@ -1,118 +1,198 @@
 using System;
+using System.Collections.Generic;
 
 namespace CurrencyConverter
 {
     // PRESENTATION LAYER: the ONLY class that prints to the screen or reads the keyboard.
-    // It asks the service to do the work and just shows the answers.
     public class ConsoleUI
     {
-        private ConversionService service; // used to do conversions
-        private RateRepository rates;      // used to list the currencies
+        private ConversionService service;   // does conversions and history
+        private RateRepository rates;        // lists the currencies
+        private InputValidator validator;    // checks what the user typed
 
-        // CONSTRUCTOR: receives the two objects it needs.
-        public ConsoleUI(ConversionService conversionService, RateRepository rateRepository)
+        public ConsoleUI(ConversionService conversionService, RateRepository rateRepository, InputValidator inputValidator)
         {
             service = conversionService;
             rates = rateRepository;
+            validator = inputValidator;
         }
 
-        // The main loop: show menu, read choice, act, repeat until the user picks 0.
+        // Main loop: show menu, read choice, act, repeat until the user picks 0.
         public void Run()
         {
-            bool running = true;              // bool = true/false. Controls the loop.
-
-            while (running)                   // keep repeating while running is true
+            bool running = true;
+            while (running)
             {
-                ShowMenu();                                   // print the menu
-                string choice = ReadText("Choose an option: "); // read what the user typed
+                ShowMenu();
+                string choice = ReadText("Choose an option: ");
 
-                if (choice == "1")            // == compares (slide 22)
+                if (choice == "1")
                 {
                     DoConversion();
                 }
-                else if (choice == "2")       // "else if" = otherwise, if this is true...
+                else if (choice == "2")
                 {
                     ShowRates();
                 }
+                else if (choice == "3")
+                {
+                    ShowHistory();
+                }
+                else if (choice == "4")
+                {
+                    ClearHistory();
+                }
                 else if (choice == "0")
                 {
-                    running = false;          // one = stores a value. The loop will now stop.
+                    running = false;   // stops the loop
                 }
-                else                          // anything else
+                else
                 {
-                    Console.WriteLine("Invalid choice. Please enter 1, 2 or 0.");
+                    Console.WriteLine("Invalid choice. Please enter 1, 2, 3, 4 or 0.");
                 }
             }
-
             Console.WriteLine("Goodbye!");
         }
 
-        // Prints a question, waits for the user to type, and returns the cleaned-up answer.
-        // Written once here so we don't repeat the same lines everywhere.
+        // Asks a question, waits for the user to type, returns the answer without extra spaces.
         private string ReadText(string question)
         {
-            Console.Write(question);          // Write stays on the same line
-            string? text = Console.ReadLine(); // ReadLine gets what the user typed. The ? just means "could be empty (null)".
-            if (text == null)                 // if nothing came back...
+            Console.Write(question);
+            string? text = Console.ReadLine();   // "?" = could be empty (null)
+            if (text == null)
             {
-                return "";                    // ...give back empty text instead of crashing
+                return "";
             }
-            return text.Trim();               // Trim removes spaces at the start and end
+            return text.Trim();
         }
 
-        // Prints the menu.
         private void ShowMenu()
         {
-            Console.WriteLine();              // blank line for spacing
+            Console.WriteLine();
             Console.WriteLine("===== CURRENCY CONVERTER =====");
             Console.WriteLine("1. Convert currency");
             Console.WriteLine("2. View supported currencies and rates");
+            Console.WriteLine("3. View conversion history");
+            Console.WriteLine("4. Clear conversion history");
             Console.WriteLine("0. Exit");
         }
 
-        // Prints every currency with its rate.
         private void ShowRates()
         {
             Console.WriteLine();
             Console.WriteLine("Supported currencies (units per 1 USD):");
-            foreach (Currency c in rates.GetAllCurrencies()) // loop through every Currency in the list
+            foreach (Currency c in rates.GetAllCurrencies())
             {
-                Console.WriteLine($"  {c.Code}  {c.RateToUsd:N2}"); // $ lets us put variables in { }. N2 = 2 decimals with commas
+                Console.WriteLine($"  {c.Code}  {c.RateToUsd:N2}");
             }
         }
 
-        // Asks for two currencies and an amount, converts, and shows the result.
+        // Keeps asking until the user gives a valid currency code (or types BACK).
+        // "other" is the currency already chosen, so we can refuse the same one twice.
+        private string AskCurrency(string question, string other)
+        {
+            while (true)   // repeat forever; the "return" lines below are the only ways out
+            {
+                string code = ReadText(question).ToUpper();
+
+                if (code == "BACK")
+                {
+                    return "BACK";
+                }
+
+                if (!validator.IsSupportedCurrency(code))
+                {
+                    Console.WriteLine("Unsupported currency '" + code + "'. Choose option 2 on the menu to see valid codes.");
+                }
+                else if (validator.IsSameCurrency(code, other))
+                {
+                    Console.WriteLine("The two currencies must be different.");
+                }
+                else
+                {
+                    return code;   // valid, so give it back and leave the loop
+                }
+            }
+        }
+
+        // Keeps asking until the amount is a number between 0 (not included) and 1,000,000,000.
+        // Returns false if the user typed BACK, true if "amount" now holds a good value.
+        private bool AskAmount(out decimal amount)
+        {
+            while (true)
+            {
+                string text = ReadText("Amount: ");
+
+                if (text.ToUpper() == "BACK")
+                {
+                    amount = 0;       // an "out" value must always be set before leaving
+                    return false;
+                }
+
+                if (!validator.TryParseAmount(text, out amount))
+                {
+                    Console.WriteLine("Invalid amount. Please enter a number, for example 250.50");
+                }
+                else if (!validator.IsAmountInRange(amount))
+                {
+                    Console.WriteLine("Amount must be greater than 0 and not more than 1,000,000,000.");
+                }
+                else
+                {
+                    return true;      // good amount
+                }
+            }
+        }
+
         private void DoConversion()
         {
-            string from = ReadText("From currency code (e.g. USD): ").ToUpper(); // ToUpper makes "usd" become "USD"
-            if (!rates.HasCurrency(from))                                        // if the code is NOT supported...
-            {
-                Console.WriteLine("Unsupported currency: " + from);              // + joins text
-                return;                                                          // leave this method and go back to the menu
-            }
+            Console.WriteLine("(Type BACK at any question to return to the menu.)");
 
-            string to = ReadText("To currency code (e.g. EUR): ").ToUpper();
-            if (!rates.HasCurrency(to))
-            {
-                Console.WriteLine("Unsupported currency: " + to);
-                return;
-            }
+            string from = AskCurrency("From currency code (e.g. USD): ", "");
+            if (from == "BACK") { return; }
 
-            string amountText = ReadText("Amount: "); // what the user typed is TEXT, not yet a number
-            decimal amount;                           // empty box for the number
-            // TryParse = safe version of Parse. It puts the number in "amount" and answers true/false.
-            if (!decimal.TryParse(amountText, out amount))
-            {
-                Console.WriteLine("Invalid amount. Please enter a number.");
-                return;
-            }
+            string to = AskCurrency("To currency code (e.g. EUR): ", from);
+            if (to == "BACK") { return; }
 
-            decimal result = service.Convert(amount, from, to);  // ask the business layer to calculate
-            decimal rate = service.GetEffectiveRate(from, to);   // and for the rate it used
+            decimal amount;
+            if (!AskAmount(out amount)) { return; }
+
+            ConversionRecord r = service.ConvertAndRecord(amount, from, to);
 
             Console.WriteLine();
-            Console.WriteLine($"{amount:N2} {from} = {result:N2} {to}");        // e.g. 100.00 USD = 92.00 EUR
-            Console.WriteLine($"Rate used: 1 {from} = {rate:F4} {to}");          // F4 = 4 decimal places
+            Console.WriteLine($"{r.Amount:N2} {r.FromCode} = {r.Result:N2} {r.ToCode}");
+            Console.WriteLine($"Rate used: 1 {r.FromCode} = {r.RateUsed:F4} {r.ToCode}");
+        }
+
+        private void ShowHistory()
+        {
+            List<ConversionRecord> list = service.GetHistory();   // newest first
+            Console.WriteLine();
+            if (list.Count == 0)
+            {
+                Console.WriteLine("No conversions yet.");
+                return;
+            }
+
+            Console.WriteLine("Conversion history (newest first):");
+            foreach (ConversionRecord r in list)
+            {
+                Console.WriteLine($"  {r.Timestamp}   {r.Amount:N2} {r.FromCode} = {r.Result:N2} {r.ToCode}   (rate {r.RateUsed:F4})");
+            }
+        }
+
+        private void ClearHistory()
+        {
+            string answer = ReadText("Delete ALL history? Type y to confirm, anything else to cancel: ").ToLower();
+            if (answer == "y")
+            {
+                service.ClearHistory();
+                Console.WriteLine("History cleared.");
+            }
+            else
+            {
+                Console.WriteLine("Cancelled. History was not changed.");
+            }
         }
     }
 }

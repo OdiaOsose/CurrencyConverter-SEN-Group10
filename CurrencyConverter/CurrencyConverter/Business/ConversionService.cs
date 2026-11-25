@@ -1,36 +1,63 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 
 namespace CurrencyConverter
 {
-    // BUSINESS LAYER: It does the calculation and knows nothing about the screen or files.
+    // BUSINESS LAYER: the "brain". It calculates and records conversions.
+    // It never prints and never reads the keyboard.
     public class ConversionService
     {
-        // The service needs rates to work, so it keeps a reference to the repository.
-        private RateRepository rates;
+        private RateRepository rates;       // where the rates come from
+        private HistoryRepository history;  // where finished conversions are saved
 
-        // CONSTRUCTOR: whoever creates the service must hand it a RateRepository.
-        public ConversionService(RateRepository rateRepository)
+        // Whoever creates the service must give it both repositories.
+        public ConversionService(RateRepository rateRepository, HistoryRepository historyRepository)
         {
-            rates = rateRepository; // store it so the other methods can use it
+            rates = rateRepository;
+            history = historyRepository;
         }
 
-        // How many "to" units equal 1 "from" unit? Example: 1 USD to EUR = 0.92.
+        // How many "to" units equal 1 "from" unit? Example: USD to EUR = 0.92.
         public decimal GetEffectiveRate(string from, string to)
         {
-            return rates.GetRate(to) / rates.GetRate(from); // divide; decimals keep the fractions
+            return rates.GetRate(to) / rates.GetRate(from);
         }
 
-        // Converts an amount and returns the result.
+        // Pure calculation: amount / fromRate gives USD, then * toRate gives the target currency.
         public decimal Convert(decimal amount, string from, string to)
         {
-            decimal fromRate = rates.GetRate(from); // units of "from" per 1 USD
-            decimal toRate = rates.GetRate(to);     // units of "to" per 1 USD
-
-            // Formula: amount / fromRate gives the value in USD, then * toRate gives it in the target currency.
-            // Example: 100 USD to EUR = 100 / 1 * 0.92 = 92
+            decimal fromRate = rates.GetRate(from);
+            decimal toRate = rates.GetRate(to);
             decimal result = amount / fromRate * toRate;
+            return Math.Round(result, 2);   // 2 decimal places
+        }
 
-            return Math.Round(result, 2); // Math.Round cuts to 2 decimal places, e.g. 92.0000 becomes 92.00
+        // Converts, saves the conversion in the history, and returns the record so the UI can show it.
+        public ConversionRecord ConvertAndRecord(decimal amount, string from, string to)
+        {
+            string cleanFrom = from.Trim().ToUpper();
+            string cleanTo = to.Trim().ToUpper();
+
+            decimal result = Convert(amount, cleanFrom, cleanTo);
+            decimal rate = GetEffectiveRate(cleanFrom, cleanTo);
+            string now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture); // current date and time as text
+
+            ConversionRecord record = new ConversionRecord(now, cleanFrom, cleanTo, amount, rate, result);
+            history.Add(record);   // the data layer saves it to the file
+            return record;
+        }
+
+        // History, newest first.
+        public List<ConversionRecord> GetHistory()
+        {
+            return history.GetNewestFirst();
+        }
+
+        // Deletes all history.
+        public void ClearHistory()
+        {
+            history.Clear();
         }
     }
 }
